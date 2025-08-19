@@ -6,54 +6,42 @@ on:
 
 jobs:
 
-  set-version:
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Export tag
-        id: vars
-        run: echo tag=${GITHUB_REF#refs/*/} >> $GITHUB_OUTPUT
-        if: ${{ github.event_name == 'release' }}
-
-      - name: Update project version
-        run: |
-          sed -i "s/^version = \".*\"/version = \"$RELEASE_VERSION\"/" pyproject.toml
-        env:
-          RELEASE_VERSION: ${{ steps.vars.outputs.tag }}
-        if: ${{ github.event_name == 'release' }}
-
-      - name: Upload updated pyproject.toml
-        uses: actions/upload-artifact@v4
-        with:
-          name: pyproject-toml
-          path: pyproject.toml
-
-  publish:
+  # This job updates the version in pyproject.toml and builds the package.
+  # We combine the versioning and build steps to avoid artifact overhead.
+  build_and_publish:
     runs-on: ubuntu-latest
-    needs: [set-version]
+    
+    permissions:
+      id-token: write # Required for Trusted Publishing
+      contents: write # Needed to check out the repository
+
     steps:
       - name: Check out
         uses: actions/checkout@v4
 
+      # Re-use your custom setup action. This will handle `uv` and `python` installation.
       - name: Set up the environment
         uses: ./.github/actions/setup-python-env
-
-      - name: Download updated pyproject.toml
-        uses: actions/download-artifact@v4
-        with:
-          name: pyproject-toml
-
+      
+      # Step to update the project version based on the release tag.
+      - name: Update project version in pyproject.toml
+        run: |
+          # Extract the tag name from GITHUB_REF (e.g., v1.2.3 -> 1.2.3)
+          RELEASE_VERSION=${GITHUB_REF#refs/tags/}
+          sed -i "s/^version = \".*\"/version = \"$RELEASE_VERSION\"/" pyproject.toml
+      
       - name: Build package
+        # uv will build the sdist and wheel files, which uv publish will use.
         run: uv build
-
+      
       - name: Publish package
+        # UV will automatically use the OIDC token and publish to PyPI.
+        # No UV_PUBLISH_TOKEN secret is needed.
         run: uv publish
-        env:
-          UV_PUBLISH_TOKEN: ${{ secrets.PYPI_TOKEN }}
-
+      
   deploy-docs:
-    needs: publish
+    # This job now depends directly on the build_and_publish job.
+    needs: build_and_publish
     runs-on: ubuntu-latest
     steps:
       - name: Check out
