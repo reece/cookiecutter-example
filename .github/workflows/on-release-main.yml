@@ -43,6 +43,8 @@ jobs:
     # This job now depends directly on the build_and_publish job.
     needs: build_and_publish
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - name: Check out
         uses: actions/checkout@v4
